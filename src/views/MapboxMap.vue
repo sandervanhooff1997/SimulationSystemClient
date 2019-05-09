@@ -1,5 +1,21 @@
 <template>
-  <div class="map" id="map"></div>
+  <div class="fullscreen">
+    <div class="fullscreen" id="map"></div>
+    <div class="toolbox">
+      <input
+        type="number"
+        v-model="config.vehicles"
+        :min="config.minVehicles"
+        :max="config.maxVehicles"
+      >
+      <br>
+      <br>
+      <input type="checkbox" v-model="config.showRoutes">
+      Show Routes
+      <br>
+      <button @click="start()">Start</button>
+    </div>
+  </div>
 </template>
 
 <script>
@@ -7,6 +23,7 @@ import axios from "axios";
 
 import mapboxgl from "mapbox-gl/dist/mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+import { setInterval } from "timers";
 
 // import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.min";
 // import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
@@ -17,6 +34,12 @@ import "mapbox-gl/dist/mapbox-gl.css";
 export default {
   data() {
     return {
+      config: {
+        vehicles: 3,
+        minVehicles: 0,
+        maxVehicles: 10,
+        showRoutes: true
+      },
       axiosDirections: null,
       axiosGeocoding: null,
       accessToken:
@@ -29,19 +52,30 @@ export default {
         zoom: 5 // starting zoom
       },
       points: [
-        [13, 52],
-        [11, 48],
-        [7, 51],
-        [7.5, 51],
-        [8, 52],
-        [12, 51],
-        [14, 51],
-        [9, 49],
-        [8.5, 50],
-        [9.4, 51.3]
+        [13.3888599, 52.5170365],
+        [11.5753822, 48.1371079],
+        [8.8071646, 53.0758196],
+        [7.0158171, 51.4582235],
+        [7.4652789, 51.5142273],
+        [6.7763137, 51.2254018],
+        [9.1800132, 48.7784485],
+        [8.6820917, 50.1106444],
+        [6.959974, 50.938361],
+        [10.000654, 53.550341],
+        [14.227151, 53.446844],
+        [13.74763, 51.042918],
+        [13.375084, 48.616017],
+        [7.849644, 48.007183],
+        [9.940572, 49.809384],
+        [7.483525, 53.468601],
+        [8.052617, 52.275448],
+        [6.663588, 49.749765],
+        [11.121661, 49.501876],
+        [9.439866, 54.787655],
+        [10.451526, 51.165691]
       ],
       geocoder: null,
-      carTrackers: [1]
+      carTrackers: [{ id: 1 }]
     };
   },
   methods: {
@@ -62,7 +96,7 @@ export default {
     /**
      * Gets the route from MapBox Directions API
      */
-    calculateRoute(origin, destination) {
+    getRoute(origin, destination) {
       return new Promise((resolve, reject) => {
         let self = this;
 
@@ -76,7 +110,7 @@ export default {
             resolve(res.data.routes[0]);
           })
           .catch(err => {
-            console.log("calculateRoute() error: " + err);
+            console.log("getRoute() error: " + err);
             reject();
           });
       });
@@ -85,14 +119,18 @@ export default {
     /**
      * Convert mapbox route response to own custom route object
      */
-    async convertCalculatedRoute(route) {
+    async convertRoute(route, carTracker, destination, index) {
       return new Promise((resolve, reject) => {
         let self = this;
 
         let convertedRoute = {
+          carTracker,
+          destination,
+          index,
           distance: route.distance,
           duration: route.duration,
-          steps: []
+          steps: [],
+          coordinates: []
         };
 
         let promises = [];
@@ -108,6 +146,7 @@ export default {
             };
 
             convertedRoute.steps.push(step);
+            convertedRoute.coordinates.push(route.geometry.coordinates[i]);
           }
 
           resolve(convertedRoute);
@@ -144,80 +183,152 @@ export default {
     /**
      * make all cars start driving
      */
-    start() {
-      this.carTrackers.forEach(carTracker => {
-        this.startDriving(carTracker);
-      });
+    async start() {
+      await self.initMap();
+
+      for (let i = 0; i < this.config.vehicles; i++)
+        this.startDriving({ id: i }, 0);
     },
 
     /**
      * make a single car start driving
      */
-    async startDriving(carTracker, startPoint) {
+    async startDriving(carTracker, index, startPoint) {
       let origin = startPoint ? startPoint : this.getRandomPoint();
       let destination = this.getRandomPoint(origin);
 
-      let route = await this.calculateRoute(origin, destination);
-      if (!route) return;
+      let mapboxRoute = await this.getRoute(origin, destination);
+      if (!mapboxRoute) return;
 
-      let convertedRoute = await this.convertCalculatedRoute(route);
-      let nextRoute = await this.animateRoute(convertedRoute);
+      let convertedRoute = await this.convertRoute(
+        mapboxRoute,
+        carTracker,
+        destination,
+        index
+      );
+      let calculatedRoute = this.calculateRoute(convertedRoute);
 
-      // // infinite driving
-      // if (nextRoute) {
-      //   this.startDriving(carTracker, destination);
-      // }
+      // Start the animation.
+      this.animate(calculatedRoute);
     },
 
     /**
-     * animate a route based on distance, duration and steps
+     * calculates all points of a route with turf library
      */
-    animateRoute(route) {
-      return new Promise((resolve, reject) => {
-        let self = this;
-        let totalDistance = route.distance;
-        let totalCalculatedDistance = 0;
-        let totalDuration = route.duration;
-        let steps = route.steps;
+    calculateRoute(converted) {
+      let self = this;
 
-        console.log(route);
-        for (let i = 0; i < steps.length; i++) {
-          console.log(steps[i]);
-          if (i === 0) continue;
+      converted.point = {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Point",
+              coordinates: converted.coordinates[0]
+            }
+          }
+        ]
+      };
 
-          let step1 = steps[i - 1];
-          let step2 = steps[i];
+      converted.route = {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            geometry: {
+              type: "LineString",
+              coordinates: converted.coordinates
+            }
+          }
+        ]
+      };
 
-          let distance = self.getDistance(
-            step1.coordinate[1],
-            step1.coordinate[0],
-            step2.coordinate[1],
-            step2.coordinate[0]
-          );
-          console.log(distance);
-          totalCalculatedDistance += distance;
-        }
+      let lineDistance = turf.lineDistance(
+        converted.route.features[0],
+        "kilometers"
+      );
 
-        console.log(totalDistance, totalCalculatedDistance * 1000);
-        resolve();
-        // let interval = setInterval(() => {
-        //   //
-        // }, 1000);
+      let arc = [];
+
+      // Number of steps to use in the arc and animation, more steps means
+      // a smoother arc and animation, but too many steps will result in a
+      // low frame rate
+      converted.steps = converted.duration;
+
+      // Draw an arc between the `origin` & `destination` of the two points
+      for (let i = 0; i < lineDistance; i += lineDistance / converted.steps) {
+        var segment = turf.along(converted.route.features[0], i, "kilometers");
+        arc.push(segment.geometry.coordinates);
+      }
+
+      // Update the route with calculated arc coordinates
+      converted.route.features[0].geometry.coordinates = arc;
+
+      // Used to increment the value of the point measurement against the route.
+      converted.counter = 0;
+
+      let pointName = converted.index + "point" + converted.carTracker.id;
+      let routeName = converted.index + "route" + converted.carTracker.id;
+      let previousPointName =
+        converted.index - 1 + "point" + converted.carTracker.id;
+      let previousRouteName =
+        converted.index - 1 + "route" + converted.carTracker.id;
+
+      if (
+        self.map.getSource(previousPointName) &&
+        self.map.getLayer(previousPointName)
+      ) {
+        self.map.removeLayer(previousPointName);
+        self.map.removeSource(previousPointName);
+      }
+
+      if (
+        self.map.getSource(previousRouteName) &&
+        self.map.getLayer(previousRouteName)
+      ) {
+        self.map.removeLayer(previousRouteName);
+        self.map.removeSource(previousRouteName);
+      }
+
+      // Add a source and layer displaying a point which will be animated in a circle.
+      self.map.addSource(routeName, {
+        type: "geojson",
+        data: converted.route
       });
-    },
 
-    /**
-     * calculates distance between 2 points
-     */
-    getDistance(lat1, lon1, lat2, lon2) {
-      var p = 0.017453292519943295; // Math.PI / 180
-      var c = Math.cos;
-      var a =
-        0.5 -
-        c((lat2 - lat1) * p) / 2 +
-        (c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))) / 2;
+      self.map.addSource(pointName, {
+        type: "geojson",
+        data: converted.point
+      });
 
-      return 12742 * Math.asin(Math.sqrt(a)); // 2 * R; R = 6371 km
+      self.map.addLayer({
+        id: pointName,
+        source: pointName,
+        type: "symbol",
+        layout: {
+          "icon-image": "car-15",
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true
+        }
+      });
+
+      if (self.config.showRoutes) {
+        self.map.addLayer({
+          id: routeName,
+          source: routeName,
+          type: "line",
+          paint: {
+            "line-width": 2,
+            "line-color": "#007cbf"
+          }
+        });
+      }
+
+      return converted;
     },
 
     /**
@@ -233,6 +344,58 @@ export default {
 
         resolve();
       });
+    },
+
+    animate(converted) {
+      let self = this;
+
+      // Update point geometry to a new position based on self.counter denoting
+      // the index to access the arc.
+      converted.point.features[0].geometry.coordinates =
+        converted.route.features[0].geometry.coordinates[converted.counter];
+
+      // Calculate the bearing to ensure the icon is rotated to match the route arc
+      // The bearing is calculate between the current point and the next point, except
+      // at the end of the arc use the previous point and the current point
+
+      let lng =
+        converted.route.features[0].geometry.coordinates[
+          converted.counter >= converted.steps
+            ? converted.counter - 1
+            : converted.counter
+        ];
+      let lat =
+        converted.route.features[0].geometry.coordinates[
+          converted.counter >= converted.steps
+            ? converted.counter
+            : converted.counter + 1
+        ];
+
+      converted.point.features[0].properties.bearing = turf.bearing(
+        turf.point(lng),
+        turf.point(lat)
+      );
+
+      // Update the source with this new data.
+      let source = converted.index + "point" + converted.carTracker.id;
+      self.map.getSource(source).setData(converted.point);
+
+      // Request the next frame of animation so long the end has not been reached.
+      if (converted.counter < converted.steps - 2) {
+        converted.animation = requestAnimationFrame(() => {
+          self.animate(converted);
+        });
+      } else {
+        converted.index++;
+
+        self.startDriving(
+          converted.carTracker,
+          converted.index,
+          converted.destination
+        );
+      }
+
+      converted.counter = converted.counter + 1;
     },
 
     /**
@@ -254,15 +417,42 @@ export default {
   async mounted() {
     await this.initMap();
     this.initAxios();
-    this.start();
   }
 };
 </script>
 
 <style>
-.map {
+.fullscreen {
   width: 100%;
   height: 100%;
+  position: relative;
+}
+
+#map {
+  position: absolute;
+}
+
+input[type="number"] {
+  width: 50%;
+  padding: 10px;
+  font-size: 15px;
+}
+
+button {
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.toolbox {
+  text-align: center;
+  z-index: 1;
+  padding: 10px;
+  width: 200px;
+  left: 20px;
+  top: 20px;
+  height: 200px;
+  background: white;
+  position: absolute;
 }
 </style>
 
