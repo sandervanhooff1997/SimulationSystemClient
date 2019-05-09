@@ -184,7 +184,7 @@ export default {
      * make all cars start driving
      */
     async start() {
-      await self.initMap();
+      await this.initMap();
 
       for (let i = 0; i < this.config.vehicles; i++)
         this.startDriving({ id: i }, 0);
