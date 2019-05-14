@@ -126,7 +126,6 @@ export default {
           carTracker,
           destination,
           index,
-          date: new Date(),
           distance: route.distance,
           duration: route.duration,
           movements: [],
@@ -144,6 +143,7 @@ export default {
               address: places[i],
               coordinate: route.geometry.coordinates[i],
               carTracker,
+              date: new Date(),
               serialNumber: i,
               authCode: "SIMULATION"
             };
