@@ -13,6 +13,10 @@
       <input type="checkbox" v-model="config.showRoutes">
       Show Routes
       <br>
+      <br>
+      <input type="checkbox" v-model="config.extremeSpeed">
+      Extreme speed
+      <br>
       <button @click="start()">Start</button>
     </div>
   </div>
@@ -23,25 +27,21 @@ import axios from "axios";
 
 import mapboxgl from "mapbox-gl/dist/mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { setInterval } from "timers";
-
-// import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.min";
-// import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
-
-// import MapboxDirections from "@mapbox/mapbox-gl-directions/dist/mapbox-gl-directions";
-// import "@mapbox/mapbox-gl-directions/dist/mapbox-gl-directions.css";
 
 export default {
   data() {
     return {
       config: {
-        vehicles: 3,
+        vehicles: 1,
         minVehicles: 0,
         maxVehicles: 10,
-        showRoutes: true
+        showRoutes: true,
+        extremeSpeed: true
       },
       axiosDirections: null,
       axiosGeocoding: null,
+      axiosMovementRegistration: null,
+      axiosBillAdministration: null,
       accessToken:
         "pk.eyJ1Ijoic3ZoMTk5NyIsImEiOiJjamZ4bmF0azQweWF1MnprZG02ZTB6dWFsIn0.-058LEniBsf5Tcoy12SVhQ",
       map: null,
@@ -74,8 +74,7 @@ export default {
         [9.439866, 54.787655],
         [10.451526, 51.165691]
       ],
-      geocoder: null,
-      carTrackers: [{ id: 1 }]
+      geocoder: null
     };
   },
   methods: {
@@ -127,9 +126,10 @@ export default {
           carTracker,
           destination,
           index,
+          date: new Date(),
           distance: route.distance,
           duration: route.duration,
-          steps: [],
+          movements: [],
           coordinates: []
         };
 
@@ -140,12 +140,15 @@ export default {
 
         Promise.all(promises).then(places => {
           for (let i = 0; i < route.geometry.coordinates.length; i++) {
-            let step = {
+            let movement = {
               address: places[i],
-              coordinate: route.geometry.coordinates[i]
+              coordinate: route.geometry.coordinates[i],
+              carTracker,
+              serialNumber: i,
+              authCode: "SIMULATION"
             };
 
-            convertedRoute.steps.push(step);
+            convertedRoute.movements.push(movement);
             convertedRoute.coordinates.push(route.geometry.coordinates[i]);
           }
 
@@ -186,8 +189,15 @@ export default {
     async start() {
       await this.initMap();
 
-      for (let i = 0; i < this.config.vehicles; i++)
-        this.startDriving({ id: i }, 0);
+      let carTrackers = await this.getCarTrackers(this.config.vehicles);
+      if (!carTrackers) {
+        console.log("no cartrackers found");
+        return;
+      }
+
+      carTrackers.forEach(ct => {
+        this.startDriving(ct, 0);
+      });
     },
 
     /**
@@ -206,6 +216,7 @@ export default {
         destination,
         index
       );
+
       let calculatedRoute = this.calculateRoute(convertedRoute);
 
       // Start the animation.
@@ -256,6 +267,8 @@ export default {
       // a smoother arc and animation, but too many steps will result in a
       // low frame rate
       converted.steps = converted.duration;
+
+      if (this.config.extremeSpeed) converted.steps = 100;
 
       // Draw an arc between the `origin` & `destination` of the two points
       for (let i = 0; i < lineDistance; i += lineDistance / converted.steps) {
@@ -332,6 +345,52 @@ export default {
     },
 
     /**
+     * Post movements to the register system
+     */
+    sendMovements(movements) {
+      console.log("sendMovements()", movements);
+      return new Promise((resolve, reject) => {
+        if (!movements || !Array.isArray(movements)) {
+          reject(null);
+          return;
+        }
+
+        resolve();
+        // todo: save to movementregistration
+        // this.axiosMovementRegistration
+        //   .post("movements", movements)
+        //   .then(() => resolve())
+        //   .catch(err => {
+        //     console.log("sendMovements() error: ", err);
+        //     reject();
+        //   });
+      });
+    },
+
+    /**
+     * Returns carTrackers from bill admin
+     */
+    getCarTrackers(count) {
+      return new Promise(resolve => {
+        //todo: change with real data
+        let carTrackers = [];
+        for (let i = 0; i < count; i++) {
+          carTrackers.push({ id: i });
+        }
+        resolve(carTrackers);
+        // this.axiosBillAdministration
+        // .get("cartracker/notdeleted")
+        // .then(res => {
+        //   resolve(res.data)
+        // })
+        // .catch(err => {
+        //   console.log('getCarTrackers() error: ', err)
+        //   resolve(null)
+        // });
+      });
+    },
+
+    /**
      * Initialize mapbox map
      */
     initMap() {
@@ -386,6 +445,9 @@ export default {
           self.animate(converted);
         });
       } else {
+        // save movement to database (movementregistration)
+        self.sendMovements(converted.movements).catch(() => {});
+
         converted.index++;
 
         self.startDriving(
@@ -411,12 +473,23 @@ export default {
         baseURL: "https://api.mapbox.com/geocoding/v5/",
         timeout: 10000
       });
+
+      this.axiosMovementRegistration = axios.create({
+        baseURL: "http://movementregistration.nl",
+        timeout: 10000
+      });
+
+      this.axiosBillAdministration = axios.create({
+        baseURL: "http://billadministration.nl",
+        timeout: 10000
+      });
     }
   },
 
   async mounted() {
     await this.initMap();
     this.initAxios();
+    // this.start();
   }
 };
 </script>
@@ -450,7 +523,6 @@ button {
   width: 200px;
   left: 20px;
   top: 20px;
-  height: 200px;
   background: white;
   position: absolute;
 }
