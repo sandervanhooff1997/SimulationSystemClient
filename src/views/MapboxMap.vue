@@ -29,6 +29,7 @@ import mapboxgl from "mapbox-gl/dist/mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 export default {
+  props: ["movements"],
   data() {
     return {
       config: {
@@ -75,6 +76,7 @@ export default {
         [10.451526, 51.165691]
       ],
       geocoder: null
+      // movements
     };
   },
   methods: {
@@ -310,7 +312,7 @@ export default {
         type: "geojson",
         data: converted.route
       });
-
+      console.log(converted.point);
       self.map.addSource(pointName, {
         type: "geojson",
         data: converted.point
@@ -345,10 +347,85 @@ export default {
     },
 
     /**
+     * Draws a route on the map, based on a list of coords
+     */
+    drawRoute(movements) {
+      // remove old route
+      this.removeRoute();
+
+      let coordinates = movements.map(x => x.coordinate);
+
+      this.map.addLayer({
+        id: "currentRoute",
+        type: "line",
+        source: {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates
+            }
+          }
+        },
+        layout: {
+          "line-join": "round",
+          "line-cap": "round"
+        },
+        paint: {
+          "line-width": 2,
+          "line-color": "#007cbf"
+        }
+      });
+
+      this.map.addSource("currentPoint", {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "Point",
+                coordinates: coordinates[coordinates.length - 1]
+              }
+            }
+          ]
+        }
+      });
+
+      this.map.addLayer({
+        id: "currentPoint",
+        source: "currentPoint",
+        type: "symbol",
+        layout: {
+          "icon-image": "car-15",
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true
+        }
+      });
+    },
+
+    removeRoute() {
+      if (this.map.getLayer("currentRoute"))
+        this.map.removeLayer("currentRoute");
+
+      if (this.map.getLayer("currentPoint"))
+        this.map.removeLayer("currentPoint");
+
+      if (this.map.getSource("currentPoint"))
+        this.map.removeSource("currentPoint");
+    },
+
+    /**
      * Post movements to the register system
      */
     sendMovements(movements) {
-      console.log("sendMovements()", movements);
+      console.log("sendMovements()", JSON.stringify(movements));
       return new Promise((resolve, reject) => {
         if (!movements || !Array.isArray(movements)) {
           reject(null);
@@ -401,7 +478,9 @@ export default {
 
         self.map = new mapboxgl.Map(self.mapConfig);
 
-        resolve();
+        self.map.on("load", () => {
+          resolve();
+        });
       });
     },
 
@@ -486,9 +565,22 @@ export default {
     }
   },
 
+  watch: {
+    movements(movements) {
+      if (movements) {
+        this.drawRoute(movements);
+      } else {
+        this.removeRoute();
+      }
+    }
+  },
+
   async mounted() {
     await this.initMap();
     this.initAxios();
+
+    if (this.movements) this.drawRoute(this.movements);
+
     // this.start();
   }
 };
