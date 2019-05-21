@@ -1,23 +1,17 @@
 <template>
   <div id="app">
-    <mapbox-map :movements="movements"></mapbox-map>
+    <mapbox-map></mapbox-map>
     <!-- <router-view/> -->
   </div>
 </template>
 
 <script>
 // mock route for police system
-import movements from "./movements.js";
 import MapboxMap from "@/views/MapboxMap.vue";
 
 export default {
   components: {
     MapboxMap
-  },
-  data() {
-    return {
-      movements
-    };
   }
 };
 </script>
