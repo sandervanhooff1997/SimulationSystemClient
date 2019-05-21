@@ -136,6 +136,11 @@ export default {
 
         Promise.all(promises).then(places => {
           for (let i = 0; i < route.geometry.coordinates.length; i++) {
+            let distance = self.calculateDistance(
+              route.geometry.coordinates[i - 1],
+              route.geometry.coordinates[i]
+            );
+
             let movement = {
               address: places[i],
               coordinate: {
@@ -145,7 +150,8 @@ export default {
               carTracker,
               date: new Date(),
               serialNumber: i,
-              authCode: "SIMULATION"
+              authCode: "SIMULATION",
+              distance
             };
 
             convertedRoute.movements.push(movement);
@@ -366,6 +372,37 @@ export default {
         //     reject();
         //   });
       });
+    },
+
+    /**
+    Calculate the distance in KM between 2 points (user to apply kilometer rate)
+     */
+    calculateDistance(coord1, coord2) {
+      if (!coord1 || !coord2) return 0;
+
+      var point1 = {
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "Point",
+          coordinates: coord1
+        }
+      };
+      var point2 = {
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "Point",
+          coordinates: coord2
+        }
+      };
+
+      var points = {
+        type: "FeatureCollection",
+        features: [point1, point2]
+      };
+
+      return turf.distance(point1, point2, "kilometers");
     },
 
     /**
