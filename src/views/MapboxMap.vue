@@ -195,14 +195,14 @@ export default {
     async start() {
       await this.initMap();
 
-      let carTrackerIds = await this.getCarTrackersIds(this.config.vehicles);
-      if (!carTrackerIds) {
+      let carTrackers = await this.getCarTrackersIds(this.config.vehicles);
+      if (!carTrackers) {
         console.log("no cartrackers found");
         return;
       }
 
-      carTrackerIds.forEach(carTrackerId => {
-        this.startDriving(carTrackerId, 0);
+      carTrackers.forEach(carTracker => {
+        this.startDriving(carTracker.id, 0);
       });
     },
 
@@ -360,15 +360,13 @@ export default {
           return;
         }
 
-        console.log("sendMovements()", movements);
-
-        // this.axiosMovementRegistration
-        //   .post("movement", movements)
-        //   .then(() => resolve())
-        //   .catch(err => {
-        //     console.log("sendMovements() error: ", err);
-        //     reject();
-        //   });
+        this.axiosMovementRegistration
+          .post("movement", movements)
+          .then(() => resolve())
+          .catch(err => {
+            console.log("sendMovements() error: ", err);
+            reject();
+          });
       });
     },
 
