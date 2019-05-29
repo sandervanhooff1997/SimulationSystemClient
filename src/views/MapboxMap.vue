@@ -115,12 +115,12 @@ export default {
     /**
      * Convert mapbox route response to own custom route object
      */
-    async convertRoute(route, carTracker, destination, index) {
+    async convertRoute(route, carTrackerId, destination, index) {
       return new Promise((resolve, reject) => {
         let self = this;
 
         let convertedRoute = {
-          carTracker,
+          carTrackerId,
           destination,
           index,
           distance: route.distance,
@@ -147,7 +147,7 @@ export default {
                 x: route.geometry.coordinates[i][0],
                 y: route.geometry.coordinates[i][1]
               },
-              carTracker,
+              carTrackerId,
               date: new Date(),
               serialNumber: i,
               authCode: "SIMULATION",
@@ -195,21 +195,21 @@ export default {
     async start() {
       await this.initMap();
 
-      let carTrackers = await this.getCarTrackers(this.config.vehicles);
-      if (!carTrackers) {
+      let carTrackerIds = await this.getCarTrackersIds(this.config.vehicles);
+      if (!carTrackerIds) {
         console.log("no cartrackers found");
         return;
       }
 
-      carTrackers.forEach(ct => {
-        this.startDriving(ct, 0);
+      carTrackerIds.forEach(carTrackerId => {
+        this.startDriving(carTrackerId, 0);
       });
     },
 
     /**
      * make a single car start driving
      */
-    async startDriving(carTracker, index, startPoint) {
+    async startDriving(carTrackerId, index, startPoint) {
       let origin = startPoint ? startPoint : this.getRandomPoint();
       let destination = this.getRandomPoint(origin);
 
@@ -218,7 +218,7 @@ export default {
 
       let convertedRoute = await this.convertRoute(
         mapboxRoute,
-        carTracker,
+        carTrackerId,
         destination,
         index
       );
@@ -288,12 +288,12 @@ export default {
       // Used to increment the value of the point measurement against the route.
       converted.counter = 0;
 
-      let pointName = converted.index + "point" + converted.carTracker.id;
-      let routeName = converted.index + "route" + converted.carTracker.id;
+      let pointName = converted.index + "point" + converted.carTrackerId;
+      let routeName = converted.index + "route" + converted.carTrackerId;
       let previousPointName =
-        converted.index - 1 + "point" + converted.carTracker.id;
+        converted.index - 1 + "point" + converted.carTrackerId;
       let previousRouteName =
-        converted.index - 1 + "route" + converted.carTracker.id;
+        converted.index - 1 + "route" + converted.carTrackerId;
 
       if (
         self.map.getSource(previousPointName) &&
@@ -362,10 +362,8 @@ export default {
 
         console.log("sendMovements()", movements);
 
-        resolve();
-        // todo: save to movementregistration
         // this.axiosMovementRegistration
-        //   .post("movements", movements)
+        //   .post("movement", movements)
         //   .then(() => resolve())
         //   .catch(err => {
         //     console.log("sendMovements() error: ", err);
@@ -408,23 +406,17 @@ export default {
     /**
      * Returns carTrackers from bill admin
      */
-    getCarTrackers(count) {
+    getCarTrackersIds(count) {
       return new Promise(resolve => {
-        //todo: change with real data
-        let carTrackers = [];
-        for (let i = 0; i < count; i++) {
-          carTrackers.push({ id: i });
-        }
-        resolve(carTrackers);
-        // this.axiosBillAdministration
-        // .get("cartracker/notdeleted")
-        // .then(res => {
-        //   resolve(res.data)
-        // })
-        // .catch(err => {
-        //   console.log('getCarTrackers() error: ', err)
-        //   resolve(null)
-        // });
+        this.axiosBillAdministration
+          .get("cartracker/notdeleted")
+          .then(res => {
+            resolve(res.data);
+          })
+          .catch(err => {
+            console.log("getCarTrackers() error: ", err);
+            resolve(null);
+          });
       });
     },
 
@@ -476,7 +468,7 @@ export default {
       );
 
       // Update the source with this new data.
-      let source = converted.index + "point" + converted.carTracker.id;
+      let source = converted.index + "point" + converted.carTrackerId;
       self.map.getSource(source).setData(converted.point);
 
       // Request the next frame of animation so long the end has not been reached.
@@ -491,13 +483,37 @@ export default {
         converted.index++;
 
         self.startDriving(
-          converted.carTracker,
+          converted.carTrackerId,
           converted.index,
           converted.destination
         );
       }
 
       converted.counter = converted.counter + 1;
+    },
+
+    checkBsn(bsn) {
+      axios
+        .get("/ownercredentials/" + bsn)
+        .then(() => {
+          let user = {
+            email: null,
+            password: null,
+            bsn: bsn
+          };
+
+          this.register(user);
+        })
+        .catch(err => {
+          console.log("user not found" + err);
+        });
+    },
+
+    register(user) {
+      user.email = "adasd@Dasd.bl";
+      user.password = "123";
+
+      //todo: post naar accountdriver backend user aanmaken
     },
 
     /**
@@ -515,12 +531,16 @@ export default {
       });
 
       this.axiosMovementRegistration = axios.create({
-        baseURL: "http://movementregistration.nl",
+        baseURL: "http://192.168.25.102:8080/MovementRegistration/",
         timeout: 10000
       });
 
       this.axiosBillAdministration = axios.create({
-        baseURL: "http://billadministration.nl",
+        // baseURL: "http://localhost:8080/BillAdministration/",
+        baseURL: "http://192.168.25.101:8080/BillAdministration/",
+        headers: {
+          "x-api": "SIMULATION"
+        },
         timeout: 10000
       });
     }
